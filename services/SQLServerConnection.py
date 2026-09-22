@@ -8,10 +8,10 @@ class SQLServerConnection:
     '''
     Gerenciamento de conexão com o banco de dados SQL Server usando o Context Manager
     '''
-    def __init__(self, server: str, database: str, user: str, password: str, driver: str = '{ODBC Driver 17 for SQL Server}'):
+    def __init__(self, server: str, database: str, username: str, password: str, driver: str = '{ODBC Driver 17 for SQL Server}'):
         self.server = server
         self.database = database
-        self.user = user
+        self.username = username
         self.password = password
         self.driver = driver
         self.connection = None
@@ -21,7 +21,7 @@ class SQLServerConnection:
             f'DRIVER={self.driver};'
             f'SERVER={self.server};'
             f'DATABASE={self.database};'
-            f'UID={self.user};'
+            f'UID={self.username};'
             f'PWD={self.password};'
         )
 
