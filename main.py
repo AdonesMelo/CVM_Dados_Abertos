@@ -2,6 +2,8 @@ from services.SQLServerConnection import SQLServerConnection
 from services.DownloadCVM import DownloadCVM
 from services.ProcessadorCVM import ProcessadorCVM
 from services.CVMRepository import CVMRepository
+from services.GoogleDriveAPIService import GoogleDriveAPIService
+from services.ServidorExternoService import ServidorExternoService
 
 import logging
 import os
@@ -30,14 +32,16 @@ def main():
         'driver': os.getenv('DB_DRIVER')
     }
 
-    # Configurando a URL da API(CVM) e a pasta de destino
+    # Configurando URLs e pastas de destino
     url_cvm = os.getenv('URL_CVM')
     pasta_dados = os.getenv('DADOS_BRUTOS')
     pasta_dados_tratados = os.getenv('DADOS_TRATADOS', r'.\Temp_File\Dados_tratados')
+    folder_id_drive = os.getenv('GOOGLE_DRIVE_FOLDER_ID', '1arQKhL1WPDMNAjPM6PW7ob4ab6PL8JNu')
+    dir_servidor_externo = os.getenv('SERVIDOR_EXTERNO_DIR', r'.\Temp_File\Servidor_Externo')
 
 
     try:
-        # Faz o download dos dados
+        # 1. Faz o download dos dados
         logging.info('Iniciando o download da fonte de dados...')
         download = DownloadCVM(url=url_cvm, pasta_destino=pasta_dados)
         caminho_csv = download.baixar_arquivo()
@@ -46,29 +50,42 @@ def main():
             logging.error('Nenhum dado retornado! Encerrando o processo.')
             return
 
-        # Processamento e tratamento dos dados baixados
+        # 2. Processamento e tratamento dos dados baixados
         logging.info('Iniciando o tratamento dos dados...')
         processador = ProcessadorCVM(caminho_csv=caminho_csv)
         df_tratado = processador.processar()
         
-        # Salvando a base de dados limpa no diretório de dados tratados
-        processador.salvar_csv(df_tratado, pasta_destino=pasta_dados_tratados, nome_arquivo='cad_fi_tratado.csv')
-        
+        # 3. Salvando a base de dados limpa localmente
+        caminho_csv_limpo = processador.salvar_csv(df_tratado, pasta_destino=pasta_dados_tratados, nome_arquivo='cad_fi_tratado.csv')
         logging.info(f'Tratamento e salvamento concluídos. {len(df_tratado)} registros salvos em {pasta_dados_tratados}.')
 
-
-        # Conexão com o Banco de Dados e Carga
+        # 4. Conexão com o Banco de Dados e Carga em Lote
         logging.info('Iniciando a conexão com o Banco de Dados para inserção...')
-
         with SQLServerConnection(**db_config) as conn:
             repo = CVMRepository()
             total_inserido = repo.inserir_dados(conn, df_tratado, truncar=True, tamanho_lote=5000)
             logging.info(f'Carga no banco finalizada com sucesso! Total de registros salvos na tabela Carteira.CVM_FI: {total_inserido}')
 
+        # 5. Envio do arquivo limpo para o Servidor Externo
+        logging.info('Iniciando envio do arquivo limpo para o Servidor Externo...')
+        servidor_ext = ServidorExternoService(diretorio_destino=dir_servidor_externo)
+        caminho_ext = servidor_ext.enviar_arquivo(caminho_arquivo_origem=caminho_csv_limpo)
+        logging.info(f'Arquivo disponibilizado no Servidor Externo em: {caminho_ext}')
+
+        # 6. Upload do arquivo limpo para a pasta do Google Drive (Controladoria) via API Oficial
+        logging.info(f'Iniciando upload via API Oficial do Google Drive para a pasta {folder_id_drive}...')
+        drive_api = GoogleDriveAPIService(folder_id=folder_id_drive)
+        file_id = drive_api.upload_arquivo(caminho_arquivo=caminho_csv_limpo)
+        if file_id:
+            logging.info(f'Upload para o Google Drive concluído com sucesso via API! (ID: {file_id})')
+        else:
+            logging.info('Serviço da API do Google Drive finalizado.')
+
+
 
     except Exception as e:
-        # Se ocorrer um erro no banco de dados (ou no download/tratamento), nós capturamos aqui
-        logging.error(f"O processo foi interrompido devido a um erro: {e}")
+        # Se ocorrer um erro em qualquer etapa, capturamos aqui
+        logging.error(f'O processo foi interrompido devido a um erro: {e}')
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     main()
