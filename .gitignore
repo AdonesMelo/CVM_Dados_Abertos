@@ -177,3 +177,7 @@ pyrightconfig.json
 Temp_File/
 
 # End of https://www.toptal.com/developers/gitignore/api/python
+
+# Credentials and tokens console API google
+credentials.json
+token.json
